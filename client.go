@@ -7,7 +7,6 @@
 package jst_sdk
 
 import (
-	"encoding/base64"
 	"fmt"
 	"github.com/damon-dai/jst-sdk/util"
 	"time"
@@ -16,13 +15,14 @@ import (
 type JstClientOptions struct {
 	appKey    string // 开发者应用Key
 	appSecret string // 开发者应用密钥
-	runmode   string // 环境：pro、线上，其他、沙箱环境
-	apiUrl    string // 接口地址
+	sandbox   bool   // 沙箱环境：true、是
+	bizParam  string // 业务请求参数，格式为jsonString
+	apiRoute  string // api路由
 }
 
 type Option func(option *JstClientOptions)
 
-func NewAgoraClient(opts ...Option) *JstClientOptions {
+func NewJstClient(opts ...Option) *JstClientOptions {
 	options := defaultRequestOptions() // 默认的请求选项
 
 	for _, optFunc := range opts {
@@ -33,53 +33,135 @@ func NewAgoraClient(opts ...Option) *JstClientOptions {
 		panic("初始化配置失败")
 	}
 
-	apiUrl := "https://openapi.jushuitan.com/open/shops/query"
-	if options.runmode == "pro" {
-		apiUrl = "https://openapi.jushuitan.com"
-	}
-
 	return &JstClientOptions{
 		appKey:    options.appKey,
 		appSecret: options.appSecret,
-		runmode:   options.runmode,
-		apiUrl:    apiUrl,
+		sandbox:   options.sandbox,
+		bizParam:  options.bizParam,
+		apiRoute:  options.apiRoute,
 	}
 }
 
+// Execute 请求接口
+func (j *JstClientOptions) Execute() string {
+	route, ok := Routes[j.apiRoute]
+	if !ok {
+		return fmt.Sprintf(`{"code": 10000, "msg": [%s]路由参数错误}`, j.apiRoute)
+	}
+
+	response, err := util.HttpPostForm(fmt.Sprintf("%s/%s", j.getApiUrl(), route), j.getParams(), 2*time.Second)
+	if err != nil {
+		return fmt.Sprintf(`{"code": 10000, "msg": %s}`, err.Error())
+	}
+
+	return string(response)
+}
+
 // 获取初始化token
-func (a *JstClientOptions) getInitToken(channelName string, uid uint32) (string, error) {
-	util.HttpPostForm(fmt.Sprintf("%s/%s", a.apiUrl, GET_INIT_TOKEN), map[string]string{
-		"app_key": a.appKey,
-	}, 2*time.Second)
+func (j *JstClientOptions) getInitToken() (string, error) {
+	//url := fmt.Sprintf("%s/%s", j.apiUrl, GET_INIT_TOKEN)
+	url := fmt.Sprintf("https://dev-api.jushuitan.com/openWebIsv/auth/getInitToken")
+	param := map[string]string{
+		"app_key":    j.appKey,
+		"timestamp":  fmt.Sprintf("%d", time.Now().Unix()),
+		"grant_type": "authorization_code",
+		"charset":    "utf-8",
+		"code":       util.GenerateRandomCode(6), // 随机码（随机创建六位字符串）自定义值
+	}
+	param["sign"] = util.GenerateSign(j.appSecret, param)
+	response, err := util.HttpPostForm(url, param, 2*time.Second)
+	if err != nil {
+		return "", fmt.Errorf(`{"code": 10000, "msg": %s}`, err.Error())
+	}
 
-	return "", nil
+	return string(response), nil
 }
 
-// base64Encode 对字符串进行Base64编码
-func base64Encode(s string) string {
-	return base64.StdEncoding.EncodeToString([]byte(s))
+// 刷新token
+func (j *JstClientOptions) refreshToken() string {
+	url := fmt.Sprintf("%s/%s", j.getApiUrl(), REFRESH_TOKEN)
+	param := map[string]string{
+		"app_key":    j.appKey,
+		"timestamp":  fmt.Sprintf("%d", time.Now().Unix()),
+		"grant_type": "refresh_token",
+		"charset":    "utf-8",
+		"scope":      "all",
+	}
+	param["sign"] = util.GenerateSign(j.appSecret, param)
+
+	// code为0表示请求成功，其他情况都为请求失败
+	response, err := util.HttpPostForm(url, param, 2*time.Second)
+	if err != nil {
+		return fmt.Sprintf(`{"code": 10000, "msg": %s}`, err.Error())
+	}
+
+	return string(response)
 }
 
-func (a *JstClientOptions) WithAppKey(appKey string) Option {
+func (j *JstClientOptions) getPublicRequestParams() map[string]string {
+	return map[string]string{
+		"app_key":      j.appKey,
+		"access_token": "b7e3b1e24e174593af8ca5c397e53dad",
+		"timestamp":    fmt.Sprintf("%d", time.Now().Unix()),
+		"charset":      "utf-8",
+		"version":      "2",
+	}
+}
+
+// 获取接口请求参数
+func (j *JstClientOptions) getParams() map[string]string {
+	param := j.getPublicRequestParams()
+	bizParam := j.bizParam
+	if len(j.bizParam) == 0 {
+		bizParam = "{}"
+	}
+	param["biz"] = bizParam
+	param["sign"] = util.GenerateSign(j.appSecret, param)
+
+	return param
+}
+
+func (j *JstClientOptions) getApiUrl() string {
+	apiUrl := "https://openapi.jushuitan.com"
+	if j.sandbox {
+		apiUrl = "https://dev-api.jushuitan.com"
+	}
+
+	return apiUrl
+}
+
+func (j *JstClientOptions) WithAppKey(appKey string) Option {
 	return func(option *JstClientOptions) {
 		option.appKey = appKey
 	}
 }
 
-func (a *JstClientOptions) WithAppSecret(appSecret string) Option {
+func (j *JstClientOptions) WithAppSecret(appSecret string) Option {
 	return func(option *JstClientOptions) {
 		option.appSecret = appSecret
 	}
 }
 
-func (a *JstClientOptions) WithRunmode(runmode string) Option {
+func (j *JstClientOptions) WithSandbox(sandbox bool) Option {
 	return func(option *JstClientOptions) {
-		option.runmode = runmode
+		option.sandbox = sandbox
+	}
+}
+
+func (j *JstClientOptions) WithBizParam(bizParam string) Option {
+	return func(option *JstClientOptions) {
+		option.bizParam = bizParam
+	}
+}
+
+func (j *JstClientOptions) WithApiRoute(apiRoute string) Option {
+	return func(option *JstClientOptions) {
+		option.apiRoute = apiRoute
 	}
 }
 
 func defaultRequestOptions() *JstClientOptions {
 	return &JstClientOptions{ // 默认请求选项
-		runmode: "pro", // 默认生产环境
+		sandbox: false, // 默认生产环境
 	}
 }
