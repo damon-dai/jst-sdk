@@ -8,6 +8,7 @@ package jst_sdk
 
 import (
 	"fmt"
+	"github.com/damon-dai/jst-sdk/intf"
 	"github.com/damon-dai/jst-sdk/util"
 	"time"
 )
@@ -18,6 +19,8 @@ type JstClientOptions struct {
 	sandbox   bool   // 沙箱环境：true、是
 	bizParam  string // 业务请求参数，格式为jsonString
 	apiRoute  string // api路由
+	bizCode   string // 业务编码
+	factory   *factory
 }
 
 type Option func(option *JstClientOptions)
@@ -39,6 +42,7 @@ func NewJstClient(opts ...Option) *JstClientOptions {
 		sandbox:   options.sandbox,
 		bizParam:  options.bizParam,
 		apiRoute:  options.apiRoute,
+		bizCode:   options.bizCode,
 	}
 }
 
@@ -128,6 +132,30 @@ func (j *JstClientOptions) getApiUrl() string {
 	}
 
 	return apiUrl
+}
+
+func (j *JstClientOptions) initStoreErpProvider() (intf.StoreErp, error) {
+	erpPair, err := j.factory.NewStoreErpProvider(j.bizCode, intf.StoreConfig{
+		AppKey:    j.appKey,
+		AppSecret: j.appSecret,
+		Sandbox:   j.sandbox,
+	})
+	return erpPair, err
+}
+
+// ShopsQuery 店铺查询
+func (j *JstClientOptions) ShopsQuery() string {
+	// 1、初始化支付实例
+	tradePair, err := j.initStoreErpProvider()
+	if err != nil {
+		return fmt.Sprintf(`{"code": 10000, "msg": %s}`, err.Error())
+	}
+
+	return tradePair.ShopsQuery(intf.StoreConfig{
+		AppKey:    j.appKey,
+		AppSecret: j.appSecret,
+		Sandbox:   j.sandbox,
+	}, j.bizParam)
 }
 
 func (j *JstClientOptions) WithAppKey(appKey string) Option {
