@@ -151,11 +151,7 @@ func (j *JstClientOptions) ShopsQuery() string {
 		return fmt.Sprintf(`{"code": 10000, "msg": %s}`, err.Error())
 	}
 
-	return tradePair.ShopsQuery(intf.StoreConfig{
-		AppKey:    j.appKey,
-		AppSecret: j.appSecret,
-		Sandbox:   j.sandbox,
-	}, j.bizParam)
+	return tradePair.ShopsQuery(j.bizParam)
 }
 
 func (j *JstClientOptions) WithAppKey(appKey string) Option {
