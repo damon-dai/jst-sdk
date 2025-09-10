@@ -63,7 +63,7 @@ func (j *JstClientOptions) Execute() string {
 
 // 获取初始化token
 func (j *JstClientOptions) getInitToken() (string, error) {
-	url := fmt.Sprintf("%s/%s", j.apiUrl, GET_INIT_TOKEN)
+	url := fmt.Sprintf("%s/%s", j.getApiUrl(), GET_INIT_TOKEN)
 	param := map[string]string{
 		"app_key":    j.appKey,
 		"timestamp":  fmt.Sprintf("%d", time.Now().Unix()),
